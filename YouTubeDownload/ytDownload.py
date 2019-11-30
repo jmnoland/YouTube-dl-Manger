@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime
 import youtube_dl
 import traceback
@@ -7,10 +8,64 @@ class FileManager():
     def __init__(self):
         self.__done = {}
         self.__first = {}
-        self.basePath = ""
+        self.basePath = os.getcwd() + '/'
         with open(self.basePath + 'log.txt', 'w') as log:
             log.write("Last ran at: {0}".format(datetime.now().strftime("%d/%m/%Y, %H:%M:%S")))
+        self.getUrls()
         self.readFile()
+
+    def getUrls(self):
+        allDetails = {}
+        with open('yt_downloads.txt', 'r') as file:
+            for url in file:
+                ydl = youtube_dl.YoutubeDL({ 'outtmpl': '%(id)s%(ext)s', 'quiet': True, })
+                with ydl:
+                    result = ydl.extract_info(url, download=False)
+                    if('entries' in result):
+                        video = result['entries']
+                        uploader = result['entries'][0]['uploader']
+                        playlist_name = result['entries'][0]['playlist']
+                        playlist_urls = []
+                        for i, item in enumerate(video):
+                            vid_url = item['webpage_url']
+                            playlist_urls.append(vid_url)
+                        if(uploader in allDetails):
+                            allDetails[uploader][playlist_name] = playlist_urls
+                        else:
+                            allDetails[uploader] = dict()
+                            allDetails[uploader][playlist_name] = playlist_urls
+                    else:
+                        if(result['uploader'] in allDetails):
+                            if("Other" in allDetails[result['uploader']]):
+                                allDetails[result['uploader']]['Other'].append(result['webpage_url'])
+                            else:
+                                allDetails[result['uploader']]['Other'] = [result['webpage_url']]
+                        else:
+                            allDetails[result['uploader']] = { "Other": [result['webpage_url']] }
+        self.formatJson(allDetails)
+
+    def formatJson(self, newDetails):
+        everything = {}
+        with open('yt_downloads.json', 'r') as json_file:
+            try:
+                everything = json.load(json_file)
+            except json.decoder.JSONDecodeError:
+                pass
+            for uploader in newDetails:
+                if uploader in everything:
+                    for title in newDetails[uploader]:
+                        if title in everything[uploader]:
+                            for url in newDetails[uploader][title]:
+                                everything[uploader][title].append(url)
+                        else:
+                            everything[uploader][title] = newDetails[uploader][title]
+                else:
+                    everything[uploader] = newDetails[uploader]
+
+        with open('yt_downloads.json', 'w') as afterFormat:
+            json.dump(everything, afterFormat)
+        with open('yt_downloads.txt', 'w') as txtFile:
+            txtFile.write("")
 
     def readFile(self):
         with open('yt_downloads.json', 'r') as json_file:
@@ -19,15 +74,12 @@ class FileManager():
                 for title in self.__first[name]:
                     index = 1
                     for url in self.__first[name][title]:
-                        options = { 
-                            'outtmpl': self.basePath + 'Youtube/' + name + '/' + title + '/%(title)s-%(id)s.%(ext)s', 
-                            'writesubtitles': True
-                            }
-                        if("playlist" in url):
-                            pass
-                        else:
-                            pass
-                            self.downloadComplete(self.downloadFile(options, url), name, title, url)
+                        options = {
+                            'outtmpl': self.basePath + 'Youtube/' + name + '/' + title + '/%(title)s-%(id)s.%(ext)s',
+                            'writesubtitles': True,
+                            'quiet': True
+                        }
+                        self.downloadComplete(self.downloadFile(options, url), name, title, url)
                         index += 1
         self.writeFiles()
 
