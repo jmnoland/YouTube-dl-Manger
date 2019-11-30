@@ -49,7 +49,7 @@ class FileManager():
         with open('yt_downloads.json', 'r') as json_file:
             try:
                 everything = json.load(json_file)
-            except json.decoder.JSONDecodeError:
+            except ValueError:
                 pass
             for uploader in newDetails:
                 if uploader in everything:
