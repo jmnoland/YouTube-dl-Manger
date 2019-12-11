@@ -18,7 +18,7 @@ class FileManager():
         allDetails = {}
         with open('yt_downloads.txt', 'r') as file:
             for url in file:
-                ydl = youtube_dl.YoutubeDL({ 'outtmpl': '%(id)s%(ext)s', 'quiet': True, })
+                ydl = youtube_dl.YoutubeDL({ 'outtmpl': '%(id)s%(ext)s', 'quiet': True, 'ignoreerrors': True })
                 with ydl:
                     result = ydl.extract_info(url, download=False)
                     if('entries' in result):
@@ -27,8 +27,11 @@ class FileManager():
                         playlist_name = result['entries'][0]['playlist']
                         playlist_urls = []
                         for i, item in enumerate(video):
-                            vid_url = item['webpage_url']
-                            playlist_urls.append(vid_url)
+                            try:
+                                vid_url = item['webpage_url']
+                                playlist_urls.append(vid_url)
+                            except TypeError:
+                                pass
                         if(uploader in allDetails):
                             allDetails[uploader][playlist_name] = playlist_urls
                         else:
@@ -70,10 +73,13 @@ class FileManager():
     def readFile(self):
         with open('yt_downloads.json', 'r') as json_file:
             self.__first = json.load(json_file)
+            limit = 0
             for name in self.__first:
                 for title in self.__first[name]:
                     index = 1
                     for url in self.__first[name][title]:
+                        if(limit >= 5):
+                            continue
                         options = {
                             'outtmpl': self.basePath + 'Youtube/' + name + '/' + title + '/%(title)s-%(id)s.%(ext)s',
                             'writesubtitles': True,
@@ -81,6 +87,7 @@ class FileManager():
                         }
                         self.downloadComplete(self.downloadFile(options, url), name, title, url)
                         index += 1
+                        limit += 1
         self.writeFiles()
 
     def downloadComplete(self, result, name, title, url):
