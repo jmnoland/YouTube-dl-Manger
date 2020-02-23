@@ -103,7 +103,8 @@ class FileManager():
             except:
                 self.__done[name] = { title: [url] }
         else:
-            print(result)
+            with open(self.basePath + 'error.txt', 'a') as errorLog:
+                errorLog.write("Fail on: " + name + '/' + title + '/' + url + '\nwith error: ' + result['Message'] + "\n\n")
 
     def writeFiles(self):
         if(self.__done != {}):

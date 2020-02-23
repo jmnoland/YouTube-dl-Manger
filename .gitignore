@@ -111,7 +111,7 @@ Monitor/error.txt
 
 # YouTubeDownload
 YouTubeDownload/log.txt
-YouTubeDownload/yt_downloads.txt
+YouTubeDownload/*.txt
 YouTubeDownload/yt_downloads.json
 YouTubeDownload/yt_downloads_done.json
 YouTubeDownload/Youtube
