@@ -66,7 +66,7 @@ class FileManager():
                     everything[uploader] = newDetails[uploader]
 
         with open('yt_downloads.json', 'w') as afterFormat:
-            json.dump(everything, afterFormat)
+            json.dump(everything, afterFormat, indent=4, sort_keys=True)
         with open('yt_downloads.txt', 'w') as txtFile:
             txtFile.write("")
 
@@ -111,21 +111,19 @@ class FileManager():
             with open('yt_downloads.json', 'w') as json_file:
                 for name in self.__first:
                     for title in self.__first[name]:
-                        for url in self.__first[name][title]:
+                        for urlIndex in range(len(self.__first[name][title])):
                             try:
                                 self.__done[name]
                                 try:
                                     self.__done[name][title]
-                                    if url in self.__done[name][title]:
-                                        self.__first[name][title].remove(url)
+                                    for doneIndex in range(len(self.__done[name][title])):
+                                        if self.__first[name][title][urlIndex] == self.__done[name][title][doneIndex]:
+                                            del self.__first[name][title][urlIndex]
                                 except:
                                     pass
                             except:
                                 pass
-                json.dump(self.__first, json_file)
-
-            with open('yt_downloads_done.json', 'w') as json_file:
-                json.dump(self.__done, json_file)
+                json.dump(self.__first, json_file, indent=4, sort_keys=True)
     
     def downloadFile(self, options, url):
         with youtube_dl.YoutubeDL(options) as ydl:
