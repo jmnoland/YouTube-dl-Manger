@@ -1,131 +1,190 @@
 import json
 import os
+import csv
 from datetime import datetime
 import youtube_dl
 import traceback
+import sqlite3
+
+class YtDatabase():
+    def __init__(self):
+        self.__conn = sqlite3.connect("downloadData.db")
+        self.__cur = self.__conn.cursor()
+        self.__cur.execute(""" CREATE TABLE IF NOT EXISTS Youtuber (
+                            id INTEGER PRIMARY KEY,
+                            name VARCHAR(500) NOT NULL UNIQUE,
+                            subtitle BIT
+                    ); """)
+        self.__cur.execute(""" CREATE TABLE IF NOT EXISTS Playlist (
+                            id INTEGER PRIMARY KEY,
+                            yt_id INTEGER,
+                            name VARCHAR(500),
+                            url VARCHAR(500) NOT NULL UNIQUE,
+                            refresh BIT
+                    ); """)
+        self.__cur.execute(""" CREATE TABLE IF NOT EXISTS Url (
+                            id INTEGER PRIMARY KEY,
+                            play_id INTEGER,
+                            url VARCHAR(500) NOT NULL UNIQUE,
+                            downloaded BIT
+                    ); """)
+        self.__conn.commit()
+
+    def add_new(self, allDetails):
+        for youtuber in allDetails:
+            yt_record = self.check_youtuber(youtuber)
+            if yt_record == None:
+                yt_record = self.add_youtuber(youtuber, allDetails[youtuber]["subtitle"])
+            for playlist in allDetails[youtuber]:
+                if playlist == "subtitle":
+                    continue
+                pl_record = self.check_playlist(playlist)
+                if pl_record == None:
+                    pl_record = self.add_playlist(yt_record, playlist, allDetails[youtuber][playlist]["url"])
+                for url in allDetails[youtuber][playlist]["list"]:
+                    try:
+                        self.add_url(pl_record, url)
+                    except sqlite3.IntegrityError:
+                        pass
+
+    def check_youtuber(self, name):
+        self.__cur.execute(""" SELECT * FROM Youtuber WHERE name LIKE ? """, (name,))
+        row = self.__cur.fetchone()
+        if row == None:
+            return None
+        return row[0]
+
+    def check_playlist(self, name):
+        self.__cur.execute(""" SELECT * FROM Playlist WHERE name LIKE ? """, (name,))
+        row = self.__cur.fetchone()
+        if row == None:
+            return None
+        return row[0]
+
+    def add_youtuber(self, name, sub):
+        self.__cur.execute(""" INSERT INTO Youtuber(name, subtitle) VALUES (?,?) """, (name, sub))
+        self.__conn.commit()
+        return self.__cur.lastrowid
+
+    def add_playlist(self, yt_id, name, url):
+        self.__cur.execute(""" INSERT INTO Playlist(yt_id, name, url, refresh) VALUES (?,?,?,?) """, (yt_id, name, url, True))
+        self.__conn.commit()
+        return self.__cur.lastrowid
+
+    def add_url(self, pl_id, url):
+        self.__cur.execute(""" INSERT INTO Url(play_id, url, downloaded) VALUES (?,?,?) """, (pl_id, url, False))
+        self.__conn.commit()
+
+    def playlist_check(self):
+        self.__cur.execute(""" SELECT pl.url, yo.subtitle FROM Playlist pl
+                                LEFT JOIN Youtuber yo ON pl.yt_id = yo.id
+                                WHERE pl.refresh = 1 """)
+        return [row for row in self.__cur]
+
+    def to_download(self):
+        self.__cur.execute("""SELECT yo.name, pl.name, yo.subtitle, u.url FROM Url u 
+                                LEFT JOIN Playlist pl ON pl.id = u.play_id
+                                LEFT JOIN Youtuber yo ON yo.id = pl.yt_id
+                                WHERE u.downloaded = 0""")
+        return [row for row in self.__cur]
+
+    def mark_downloaded(self, url):
+        self.__cur.execute("UPDATE Url SET downloaded = 1 WHERE url = ?", (url,))
+        self.__conn.commit()
+
+    def close(self):
+        self.__conn.close()
 
 class FileManager():
     def __init__(self):
-        self.__done = {}
-        self.__first = {}
+        self.allDetails = {}
         self.basePath = os.getcwd() + '/'
         with open(self.basePath + 'log.txt', 'w') as log:
             log.write("Last ran at: {0}".format(datetime.now().strftime("%d/%m/%Y, %H:%M:%S")))
-        self.getUrls()
-        self.readFile()
+        with open(self.basePath + "settings.json", 'r') as settings_json:
+            self.settings = json.load(settings_json)
 
-    def getUrls(self):
-        allDetails = {}
+        self.refresh_playlist()
+        db.add_new(self.allDetails)
+        self.allDetails = {}
+
+        self.find_new()
+        db.add_new(self.allDetails)
+
+        self.start_downloads()
+        db.close()
+
+    def refresh_playlist(self):
+        for row in db.playlist_check():
+            self.get_info(row[0], row[1])
+
+    def find_new(self):
         with open('yt_downloads.txt', 'r') as file:
-            for url in file:
-                ydl = youtube_dl.YoutubeDL({ 'outtmpl': '%(id)s%(ext)s', 'quiet': True, 'ignoreerrors': True })
-                with ydl:
-                    result = ydl.extract_info(url, download=False)
-                    if('entries' in result):
-                        video = result['entries']
-                        uploader = result['entries'][0]['uploader']
-                        playlist_name = result['entries'][0]['playlist']
-                        playlist_urls = []
-                        for i, item in enumerate(video):
-                            try:
-                                vid_url = item['webpage_url']
-                                playlist_urls.append(vid_url)
-                            except TypeError:
-                                pass
-                        if(uploader in allDetails):
-                            allDetails[uploader][playlist_name] = playlist_urls
-                        else:
-                            allDetails[uploader] = dict()
-                            allDetails[uploader][playlist_name] = playlist_urls
-                    else:
-                        if(result['uploader'] in allDetails):
-                            if("Other" in allDetails[result['uploader']]):
-                                allDetails[result['uploader']]['Other'].append(result['webpage_url'])
-                            else:
-                                allDetails[result['uploader']]['Other'] = [result['webpage_url']]
-                        else:
-                            allDetails[result['uploader']] = { "Other": [result['webpage_url']] }
-        self.formatJson(allDetails)
-
-    def formatJson(self, newDetails):
-        everything = {}
-        with open('yt_downloads.json', 'r') as json_file:
-            try:
-                everything = json.load(json_file)
-            except ValueError:
-                pass
-            for uploader in newDetails:
-                if uploader in everything:
-                    for title in newDetails[uploader]:
-                        if title in everything[uploader]:
-                            for url in newDetails[uploader][title]:
-                                everything[uploader][title].append(url)
-                        else:
-                            everything[uploader][title] = newDetails[uploader][title]
+            reader = csv.reader(file, delimiter=',')
+            for row in reader:
+                if len(row) > 1:
+                    self.get_info(row[0], row[1])
                 else:
-                    everything[uploader] = newDetails[uploader]
+                    self.get_info(row[0])
 
-        with open('yt_downloads.json', 'w') as afterFormat:
-            json.dump(everything, afterFormat, indent=4, sort_keys=True)
-        with open('yt_downloads.txt', 'w') as txtFile:
-            txtFile.write("")
+        with open('yt_downloads.txt', 'w') as temp:
+            pass
 
-    def readFile(self):
-        with open('yt_downloads.json', 'r') as json_file:
-            self.__first = json.load(json_file)
-            limit = 0
-            for name in self.__first:
-                for title in self.__first[name]:
-                    index = 1
-                    for url in self.__first[name][title]:
-                        if(limit >= 5):
-                            continue
-                        options = {
-                            'outtmpl': self.basePath + 'Youtube/' + name + '/' + title + '/%(title)s-%(id)s.%(ext)s',
-                            'writesubtitles': True,
-                            'quiet': True
-                        }
-                        self.downloadComplete(self.downloadFile(options, url), name, title, url)
-                        index += 1
-                        limit += 1
-        self.writeFiles()
+    def get_info(self, url, sub = False):
+        ydl = youtube_dl.YoutubeDL({ 'outtmpl': '%(id)s%(ext)s', 'quiet': True, 'ignoreerrors': True })
+        with ydl:
+            result = ydl.extract_info(url, download=False)
+            if result == None:
+                return
+            if('entries' in result):
+                video = result['entries']
+                uploader = result['entries'][0]['uploader']
+                playlist_name = result['entries'][0]['playlist']
+                playlist_urls = []
+                for i, item in enumerate(video):
+                    try:
+                        vid_url = item['webpage_url']
+                        playlist_urls.append(vid_url)
+                    except TypeError:
+                        pass
+                if(uploader in self.allDetails):
+                    self.allDetails[uploader][playlist_name] = { "list": playlist_urls, "url": url }
+                else:
+                    self.allDetails[uploader] = dict()
+                    self.allDetails[uploader]['subtitle'] = sub
+                    self.allDetails[uploader][playlist_name] = { "list": playlist_urls, "url": url }
+            else:
+                if(result['uploader'] in self.allDetails):
+                    if("Other" in self.allDetails[result['uploader']]):
+                        self.allDetails[result['uploader']]['Other']["list"].append(result['webpage_url'])
+                    else:
+                        self.allDetails[result['uploader']]['Other']["list"] = [result['webpage_url']]
+                        self.allDetails[result['uploader']]['Other']["url"] = url
+                else:
+                    self.allDetails[result['uploader']] = { "Other": { "list": [result['webpage_url']], "url": url } }
+                    self.allDetails[result['uploader']]['subtitle'] = sub
 
-    def downloadComplete(self, result, name, title, url):
-        if(result["Status"]):
-            try:
-                self.__done[name]
-                try:
-                    self.__done[name][title]
-                except:
-                    self.__done[name] = { title: [url]}
-                finally:
-                    self.__done[name][title].append(url)
-            except:
-                self.__done[name] = { title: [url] }
+    def start_downloads(self):
+        current = 0
+        urlList = db.to_download()
+        for url in urlList:
+            if(current >= self.settings["downloadLimit"]):
+                continue
+            options = {
+                'outtmpl': self.basePath + 'Youtube/' + url[0] + '/' + url[1] + '/%(title)s.%(ext)s',
+                'writesubtitles': url[2],
+                'quiet': True
+            }
+            self.download_complete(self.download_file(options, url[3]), url[3])
+            current += 1
+
+    def download_complete(self, status, url):
+        if status["Status"]:
+            db.mark_downloaded(url)
         else:
-            with open(self.basePath + 'error.txt', 'a') as errorLog:
-                errorLog.write("Fail on: " + name + '/' + title + '/' + url + '\nwith error: ' + result['Message'] + "\n\n")
+            pass
 
-    def writeFiles(self):
-        if(self.__done != {}):
-            with open('yt_downloads.json', 'w') as json_file:
-                for name in self.__first:
-                    for title in self.__first[name]:
-                        for urlIndex in range(len(self.__first[name][title])):
-                            try:
-                                self.__done[name]
-                                try:
-                                    self.__done[name][title]
-                                    for doneIndex in range(len(self.__done[name][title])):
-                                        if self.__first[name][title][urlIndex] == self.__done[name][title][doneIndex]:
-                                            del self.__first[name][title][urlIndex]
-                                except:
-                                    pass
-                            except:
-                                pass
-                json.dump(self.__first, json_file, indent=4, sort_keys=True)
-    
-    def downloadFile(self, options, url):
+    def download_file(self, options, url):
         with youtube_dl.YoutubeDL(options) as ydl:
             try:
                 ydl.download([url])
@@ -133,4 +192,5 @@ class FileManager():
             except Exception:
                 return { "Status": False, "Message": traceback.format_exc() }
 
+db = YtDatabase()
 FileManager()
