@@ -19,7 +19,7 @@ class YtDatabase():
                             id INTEGER PRIMARY KEY,
                             yt_id INTEGER,
                             name VARCHAR(500),
-                            url VARCHAR(500) NOT NULL UNIQUE,
+                            url VARCHAR(500),
                             refresh BIT
                     ); """)
         self.__cur.execute(""" CREATE TABLE IF NOT EXISTS Url (
@@ -38,9 +38,12 @@ class YtDatabase():
             for playlist in allDetails[youtuber]:
                 if playlist == "subtitle":
                     continue
-                pl_record = self.check_playlist(playlist)
+                pl_record = self.check_playlist(playlist, yt_record)
                 if pl_record == None:
-                    pl_record = self.add_playlist(yt_record, playlist, allDetails[youtuber][playlist]["url"])
+                    if playlist == "Other":
+                        pl_record = self.add_playlist(yt_record, playlist, None, False)
+                    else:
+                        pl_record = self.add_playlist(yt_record, playlist, allDetails[youtuber][playlist]["url"])
                 for url in allDetails[youtuber][playlist]["list"]:
                     try:
                         self.add_url(pl_record, url)
@@ -54,8 +57,8 @@ class YtDatabase():
             return None
         return row[0]
 
-    def check_playlist(self, name):
-        self.__cur.execute(""" SELECT * FROM Playlist WHERE name LIKE ? """, (name,))
+    def check_playlist(self, name, yt_id):
+        self.__cur.execute(""" SELECT * FROM Playlist WHERE name LIKE ? AND yt_id = ? """, (name,yt_id))
         row = self.__cur.fetchone()
         if row == None:
             return None
@@ -66,8 +69,8 @@ class YtDatabase():
         self.__conn.commit()
         return self.__cur.lastrowid
 
-    def add_playlist(self, yt_id, name, url):
-        self.__cur.execute(""" INSERT INTO Playlist(yt_id, name, url, refresh) VALUES (?,?,?,?) """, (yt_id, name, url, True))
+    def add_playlist(self, yt_id, name, url, refresh=True):
+        self.__cur.execute(""" INSERT INTO Playlist(yt_id, name, url, refresh) VALUES (?,?,?,?) """, (yt_id, name, url, refresh))
         self.__conn.commit()
         return self.__cur.lastrowid
 
