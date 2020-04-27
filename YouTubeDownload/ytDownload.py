@@ -40,7 +40,7 @@ class YtDatabase():
                     continue
                 pl_record = self.check_playlist(playlist, yt_record)
                 if pl_record == None:
-                    if playlist == "Other":
+                    if playlist == "No Playlist":
                         pl_record = self.add_playlist(yt_record, playlist, None, False)
                     else:
                         pl_record = self.add_playlist(yt_record, playlist, allDetails[youtuber][playlist]["url"])
@@ -58,11 +58,15 @@ class YtDatabase():
         return row[0]
 
     def check_playlist(self, name, yt_id):
-        self.__cur.execute(""" SELECT * FROM Playlist WHERE name LIKE ? AND yt_id = ? """, (name,yt_id))
+        self.__cur.execute(""" SELECT * FROM Playlist WHERE name LIKE ? AND yt_id = ? """, (name, yt_id))
         row = self.__cur.fetchone()
         if row == None:
             return None
         return row[0]
+    
+    def check_url(self, url):
+        self.__cur.execute(""" SELECT COUNT(*) FROM Url WHERE url = ? """, (url,))
+        return [row for row in self.__cur]
 
     def add_youtuber(self, name, sub):
         self.__cur.execute(""" INSERT INTO Youtuber(name, subtitle) VALUES (?,?) """, (name, sub))
@@ -158,13 +162,13 @@ class FileManager():
                     self.allDetails[uploader][playlist_name] = { "list": playlist_urls, "url": url }
             else:
                 if(result['uploader'] in self.allDetails):
-                    if("Other" in self.allDetails[result['uploader']]):
-                        self.allDetails[result['uploader']]['Other']["list"].append(result['webpage_url'])
+                    if("No Playlist" in self.allDetails[result['uploader']]):
+                        self.allDetails[result['uploader']]['No Playlist']["list"].append(result['webpage_url'])
                     else:
-                        self.allDetails[result['uploader']]['Other']["list"] = [result['webpage_url']]
-                        self.allDetails[result['uploader']]['Other']["url"] = url
+                        self.allDetails[result['uploader']]['No Playlist']["list"] = [result['webpage_url']]
+                        self.allDetails[result['uploader']]['No Playlist']["url"] = url
                 else:
-                    self.allDetails[result['uploader']] = { "Other": { "list": [result['webpage_url']], "url": url } }
+                    self.allDetails[result['uploader']] = { "No Playlist": { "list": [result['webpage_url']], "url": url } }
                     self.allDetails[result['uploader']]['subtitle'] = sub
 
     def start_downloads(self):
