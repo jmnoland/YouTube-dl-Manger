@@ -182,8 +182,10 @@ class FileManager():
                 'writesubtitles': url[2],
                 'quiet': True
             }
-            self.download_complete(self.download_file(options, url[3]), url[3])
-            current += 1
+            status = self.download_file(options, url[3])
+            self.download_complete(status, url[3])
+            if status["Status"]:
+                current += 1
 
     def download_complete(self, status, url):
         if status["Status"]:
