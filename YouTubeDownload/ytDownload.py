@@ -88,8 +88,14 @@ class YtDatabase():
                                 WHERE pl.refresh = 1 """)
         return [row for row in self.__cur]
 
-    def to_download(self):
-        self.__cur.execute("""SELECT yo.name, pl.name, yo.subtitle, u.url FROM Url u 
+    def to_download(self, randomOrder):
+        if randomOrder:
+            self.__cur.execute("""SELECT yo.name, pl.name, yo.subtitle, u.url FROM Url u 
+                                LEFT JOIN Playlist pl ON pl.id = u.play_id
+                                LEFT JOIN Youtuber yo ON yo.id = pl.yt_id
+                                WHERE u.downloaded = 0 ORDER BY RANDOM()""")
+        else:
+            self.__cur.execute("""SELECT yo.name, pl.name, yo.subtitle, u.url FROM Url u 
                                 LEFT JOIN Playlist pl ON pl.id = u.play_id
                                 LEFT JOIN Youtuber yo ON yo.id = pl.yt_id
                                 WHERE u.downloaded = 0""")
@@ -173,7 +179,7 @@ class FileManager():
 
     def start_downloads(self):
         current = 0
-        urlList = db.to_download()
+        urlList = db.to_download(self.settings['randomOrder'])
         for url in urlList:
             if(current >= self.settings["downloadLimit"]):
                 continue
