@@ -88,18 +88,48 @@ class YtDatabase():
                                 WHERE pl.refresh = 1 """)
         return [row for row in self.__cur]
 
+    def fetch_playlists(self):
+        self.__cur.execute(""" SELECT pl.id, yo.name, pl.name, yo.subtitle FROM Playlist pl
+                            LEFT JOIN Youtuber yo ON pl.yt_id = yo.id """)
+        return [row for row in self.__cur]
+    
+    def fetch_urls(self, pl_id, downloaded = False):
+        self.__cur.execute(""" SELECT url FROM Url WHERE downloaded = ? AND play_id = ? """, (downloaded, pl_id))
+        return [row for row in self.__cur]
+
     def to_download(self, randomOrder):
         if randomOrder:
-            self.__cur.execute("""SELECT yo.name, pl.name, yo.subtitle, u.url FROM Url u 
-                                LEFT JOIN Playlist pl ON pl.id = u.play_id
-                                LEFT JOIN Youtuber yo ON yo.id = pl.yt_id
-                                WHERE u.downloaded = 0 ORDER BY RANDOM()""")
+            return self.shuffle_select()
         else:
             self.__cur.execute("""SELECT yo.name, pl.name, yo.subtitle, u.url FROM Url u 
                                 LEFT JOIN Playlist pl ON pl.id = u.play_id
                                 LEFT JOIN Youtuber yo ON yo.id = pl.yt_id
                                 WHERE u.downloaded = 0""")
         return [row for row in self.__cur]
+    
+    def shuffle_select(self):
+        shuffleRows = []
+        allCurs = []
+        playListDict = {}
+        for details in self.fetch_playlists():
+            playListDict[details[0]] = details[1:]
+            tempCur = self.__conn.cursor()
+            tempCur.execute("SELECT play_id, url FROM Url WHERE downloaded = 0 AND play_id = ?", (details[0],))
+            allCurs.append(tempCur)
+
+        while allCurs != []:
+            deleteIndex = []
+            for i in range(len(allCurs)):
+                url = allCurs[i].fetchone()
+                if url == None:
+                    deleteIndex.append(i)
+                else:
+                    shuffleRows.append([*playListDict[url[0]], url[1]])
+
+            for index in deleteIndex:
+                del allCurs[index]
+
+        return shuffleRows
 
     def mark_downloaded(self, url):
         self.__cur.execute("UPDATE Url SET downloaded = 1 WHERE url = ?", (url,))
