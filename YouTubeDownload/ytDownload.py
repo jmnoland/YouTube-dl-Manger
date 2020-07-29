@@ -5,6 +5,11 @@ from datetime import datetime
 import youtube_dl
 import traceback
 import sqlite3
+from selenium import webdriver 
+from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver.common.action_chains import ActionChains
+import time
 
 class YtDatabase():
     def __init__(self):
@@ -166,12 +171,46 @@ class FileManager():
             reader = csv.reader(file, delimiter=',')
             for row in reader:
                 if len(row) > 1:
-                    self.get_info(row[0], row[1])
+                    if (row[1] == 'page'):
+                        pass
+                    elif (row[1] == 'playlist'):
+                        pass
+                    else:
+                        self.get_info(row[0], row[1])
                 else:
                     self.get_info(row[0])
 
-        with open('yt_downloads.txt', 'w') as temp:
+        with open('yt_downloads.txt', 'w') as _:
             pass
+
+    def getPlayListLinks(self, url, uploader, playlist_name, sub):
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        driver = webdriver.Chrome(options=chrome_options)
+
+        driver.get(url)
+        actions = ActionChains(driver)
+
+        try:
+            element = driver.find_element_by_xpath(self.settings['playListLoadingXPath'])
+            while True:
+                actions.move_to_element(element).perform()
+                time.sleep(10)
+                element = driver.find_element_by_xpath(self.settings['playListLoadingXPath'])
+
+        except NoSuchElementException:
+            playlist_urls = []
+            for a in driver.find_elements_by_xpath(self.settings['playListXPath']):
+                playlist_urls.append(a.get_attribute('href').split('&')[0])
+
+            if(uploader in self.allDetails):
+                self.allDetails[uploader][playlist_name] = { "list": playlist_urls, "url": url }
+            else:
+                self.allDetails[uploader] = dict()
+                self.allDetails[uploader]['subtitle'] = sub
+                self.allDetails[uploader][playlist_name] = { "list": playlist_urls, "url": url }
+
+        driver.quit()
 
     def get_info(self, url, sub = False):
         ydl = youtube_dl.YoutubeDL({ 'outtmpl': '%(id)s%(ext)s', 'quiet': True, 'ignoreerrors': True })
@@ -184,7 +223,7 @@ class FileManager():
                 uploader = result['entries'][0]['uploader']
                 playlist_name = result['entries'][0]['playlist']
                 playlist_urls = []
-                for i, item in enumerate(video):
+                for _, item in enumerate(video):
                     try:
                         vid_url = item['webpage_url']
                         playlist_urls.append(vid_url)
