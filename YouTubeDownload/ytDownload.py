@@ -7,7 +7,7 @@ import traceback
 import sqlite3
 from selenium import webdriver 
 from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, JavascriptException, StaleElementReferenceException
 from selenium.webdriver.common.action_chains import ActionChains
 import time
 
@@ -40,16 +40,29 @@ class YtDatabase():
             yt_record = self.check_youtuber(youtuber)
             if yt_record == None:
                 yt_record = self.add_youtuber(youtuber, allDetails[youtuber]["subtitle"])
-            for playlist in allDetails[youtuber]:
-                if playlist == "subtitle":
+            for detail in allDetails[youtuber]:
+                if detail == "subtitle":
                     continue
-                pl_record = self.check_playlist(playlist, yt_record)
+                pl_record = None
+                try:
+                    if allDetails[youtuber][detail]['page'] == True:
+                        pl_record = self.add_playlist(yt_record, detail, allDetails[youtuber][detail]["url"], False)
+                        for url in allDetails[youtuber][detail]["list"]:
+                            try:
+                                self.add_url(pl_record, url)
+                            except sqlite3.IntegrityError:
+                                pass
+                        continue
+                except KeyError:
+                    pass
+
+                pl_record = self.check_playlist(detail, yt_record)
                 if pl_record == None:
-                    if playlist == "No Playlist":
-                        pl_record = self.add_playlist(yt_record, playlist, None, False)
+                    if detail == "No Playlist":
+                        pl_record = self.add_playlist(yt_record, detail, None, False)
                     else:
-                        pl_record = self.add_playlist(yt_record, playlist, allDetails[youtuber][playlist]["url"])
-                for url in allDetails[youtuber][playlist]["list"]:
+                        pl_record = self.add_playlist(yt_record, detail, allDetails[youtuber][detail]["url"])
+                for url in allDetails[youtuber][detail]["list"]:
                     try:
                         self.add_url(pl_record, url)
                     except sqlite3.IntegrityError:
@@ -151,6 +164,8 @@ class FileManager():
             log.write("Last ran at: {0}".format(datetime.now().strftime("%d/%m/%Y, %H:%M:%S")))
         with open(self.basePath + "settings.json", 'r') as settings_json:
             self.settings = json.load(settings_json)
+        with open(self.basePath + "options.json", 'r') as options_json:
+            self.ytdlOptions = json.load(options_json)
 
         self.refresh_playlist()
         db.add_new(self.allDetails)
@@ -172,9 +187,10 @@ class FileManager():
             for row in reader:
                 if len(row) > 1:
                     if (row[1] == 'page'):
-                        pass
-                    elif (row[1] == 'playlist'):
-                        pass
+                        try:
+                            self.getAllPageLinks(row[0], row[2])
+                        except IndexError:
+                            self.getAllPageLinks(row[0], False)
                     else:
                         self.get_info(row[0], row[1])
                 else:
@@ -183,11 +199,15 @@ class FileManager():
         with open('yt_downloads.txt', 'w') as _:
             pass
 
-    def getPlayListLinks(self, url, uploader, playlist_name, sub):
+    def getWebdriver(self):
         chrome_options = Options()
         chrome_options.add_argument("--headless")
-        driver = webdriver.Chrome(options=chrome_options)
+        return webdriver.Chrome(options=chrome_options)
 
+    # if youtube-dl breaks when trying to download large playlists.
+    # get playlist links from html using selenium
+    def getPlayListLinks(self, url, uploader, playlist_name, sub):
+        driver = self.getWebdriver()
         driver.get(url)
         actions = ActionChains(driver)
 
@@ -195,7 +215,7 @@ class FileManager():
             element = driver.find_element_by_xpath(self.settings['playListLoadingXPath'])
             while True:
                 actions.move_to_element(element).perform()
-                time.sleep(10)
+                time.sleep(self.settings['waitTimer'])
                 element = driver.find_element_by_xpath(self.settings['playListLoadingXPath'])
 
         except NoSuchElementException:
@@ -212,11 +232,55 @@ class FileManager():
 
         driver.quit()
 
+    def getAllPageLinks(self, url, sub):
+        driver = self.getWebdriver()
+        driver.get(url)
+        actions = ActionChains(driver)
+
+        try:
+            elements = driver.find_elements_by_xpath(self.settings['PageLoadingXPath'])
+            while True:
+                actions.move_to_element(elements[0]).perform()
+                time.sleep(self.settings['waitTimer']) 
+                elements = driver.find_elements_by_xpath(self.settings['PageLoadingXPath'])
+
+        except JavascriptException as e:
+            print(e)
+            print("Try increasing the waitTimer setting")
+
+        except NoSuchElementException:
+            page_urls = []
+            uploader = "Unknown"
+            count = 0
+            for a in driver.find_elements_by_xpath(self.settings['PageXPath']):
+                if count == 0:
+                    ydl = youtube_dl.YoutubeDL(self.ytdlOptions)
+                    with ydl:
+                        try:
+                            result = ydl.extract_info(url, download=False)
+                            uploader = result['uploader']
+                        except youtube_dl.utils.DownloadError:
+                            pass
+                href = a.get_attribute('href')
+                if href != None:
+                    page_urls.append(href)
+                count += 1
+
+            if(uploader in self.allDetails):
+                self.allDetails[uploader]["All_{0}".format(count)] = { "list": page_urls, "url": url, "page": True }
+            else:
+                self.allDetails[uploader] = dict()
+                self.allDetails[uploader]['subtitle'] = sub
+                self.allDetails[uploader]["All_{0}".format(count)] = { "list": page_urls, "url": url, "page": True }
+
+        driver.quit()
+
     def get_info(self, url, sub = False):
-        ydl = youtube_dl.YoutubeDL({ 'outtmpl': '%(id)s%(ext)s', 'quiet': True, 'ignoreerrors': True })
+        ydl = youtube_dl.YoutubeDL(self.ytdlOptions)
         with ydl:
-            result = ydl.extract_info(url, download=False)
-            if result == None:
+            try:
+                result = ydl.extract_info(url, download=False)
+            except youtube_dl.utils.DownloadError:
                 return
             if('entries' in result):
                 video = result['entries']
@@ -251,7 +315,7 @@ class FileManager():
         urlList = db.to_download(self.settings['randomOrder'])
         for url in urlList:
             if(current >= self.settings["downloadLimit"]):
-                continue
+                break
             options = {
                 'outtmpl': self.basePath + 'Youtube/' + url[0] + '/' + url[1] + '/%(title)s.%(ext)s',
                 'writesubtitles': url[2],

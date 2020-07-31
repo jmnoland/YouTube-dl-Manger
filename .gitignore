@@ -113,5 +113,6 @@ Monitor/error.txt
 YouTubeDownload/log.txt
 YouTubeDownload/*.txt
 YouTubeDownload/*.json
+YouTubeDownload/*.exe
 YouTubeDownload/Youtube
 */*.db
