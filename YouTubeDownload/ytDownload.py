@@ -33,6 +33,12 @@ class YtDatabase():
                             url VARCHAR(500) NOT NULL UNIQUE,
                             downloaded BIT
                     ); """)
+        self.__cur.execute(""" CREATE TABLE IF NOT EXISTS Error (
+                            id INTEGER PRIMARY KEY,
+                            url VARCHAR(500) NOT NULL UNIQUE,
+                            failedCount INTEGER,
+                            lastMsg TEXT
+                    ); """)
         self.__conn.commit()
 
     def add_new(self, allDetails):
@@ -98,6 +104,13 @@ class YtDatabase():
 
     def add_url(self, pl_id, url):
         self.__cur.execute(""" INSERT INTO Url(play_id, url, downloaded) VALUES (?,?,?) """, (pl_id, url, False))
+        self.__conn.commit()
+
+    def add_error(self, url, msg):
+        try:
+            self.__cur.execute(""" INSERT INTO Error(url, failedCount, lastMsg) VALUES (?,?,?) """, (url, 0, msg))
+        except sqlite3.IntegrityError:
+            self.__cur.execute(""" UPDATE Error SET failedCount = failedCount + ?, lastMsg = ? WHERE url = ? """, (1, msg, url))
         self.__conn.commit()
 
     def playlist_check(self):
@@ -235,12 +248,10 @@ class FileManager():
     def getAllPageLinks(self, url, sub):
         driver = self.getWebdriver()
         driver.get(url)
-        actions = ActionChains(driver)
-
         try:
             elements = driver.find_elements_by_xpath(self.settings['PageLoadingXPath'])
             while True:
-                actions.move_to_element(elements[0]).perform()
+                elements[0].location_once_scrolled_into_view
                 time.sleep(self.settings['waitTimer']) 
                 elements = driver.find_elements_by_xpath(self.settings['PageLoadingXPath'])
 
@@ -248,13 +259,14 @@ class FileManager():
             print(e)
             print("Try increasing the waitTimer setting")
 
-        except NoSuchElementException:
+        except IndexError:
             page_urls = []
             uploader = "Unknown"
             count = 0
             for a in driver.find_elements_by_xpath(self.settings['PageXPath']):
+                print(count)
                 if count == 0:
-                    ydl = youtube_dl.YoutubeDL(self.ytdlOptions)
+                    ydl = youtube_dl.YoutubeDL({"quiet": True, "ignoreerrors": True})
                     with ydl:
                         try:
                             result = ydl.extract_info(url, download=False)
@@ -272,11 +284,10 @@ class FileManager():
                 self.allDetails[uploader] = dict()
                 self.allDetails[uploader]['subtitle'] = sub
                 self.allDetails[uploader]["All_{0}".format(count)] = { "list": page_urls, "url": url, "page": True }
-
         driver.quit()
 
     def get_info(self, url, sub = False):
-        ydl = youtube_dl.YoutubeDL(self.ytdlOptions)
+        ydl = youtube_dl.YoutubeDL({"quiet": True, "ignoreerrors": True})
         with ydl:
             try:
                 result = ydl.extract_info(url, download=False)
@@ -314,13 +325,17 @@ class FileManager():
         current = 0
         urlList = db.to_download(self.settings['randomOrder'])
         for url in urlList:
-            if(current >= self.settings["downloadLimit"]):
+            if(self.settings["downloadLimit"] != -1 and current >= self.settings["downloadLimit"]):
                 break
-            options = {
-                'outtmpl': self.basePath + 'Youtube/' + url[0] + '/' + url[1] + '/%(title)s.%(ext)s',
-                'writesubtitles': url[2],
-                'quiet': True
-            }
+
+            options = self.ytdlOptions
+            if "outtmpl" in self.ytdlOptions:
+                options['outtmpl'] = self.basePath + "Youtube/" + url[0] + "/" + url[1] + self.ytdlOptions['outtmpl']
+            else:
+                options['outtmpl'] = self.basePath + "Youtube/" + url[0] + "/" + url[1] + "/%(title)s.%(ext)s"
+            if "writesubtitles" not in self.ytdlOptions:
+                options['writesubtitles'] = url[2]
+
             status = self.download_file(options, url[3])
             self.download_complete(status, url[3])
             if status["Status"]:
@@ -330,7 +345,7 @@ class FileManager():
         if status["Status"]:
             db.mark_downloaded(url)
         else:
-            pass
+            db.add_error(url, status['Message'])
 
     def download_file(self, options, url):
         with youtube_dl.YoutubeDL(options) as ydl:

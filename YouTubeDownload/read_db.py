@@ -9,6 +9,8 @@ class YtDatabase():
         self.read_playlist()
         print("")
         self.read_urls()
+        print("")
+        self.read_err()
         self.__conn.close()
 
     def read_youtuber(self):
@@ -23,6 +25,11 @@ class YtDatabase():
 
     def read_urls(self):
         self.__cur.execute("SELECT * FROM Url WHERE downloaded = 0")
+        for row in self.__cur:
+            print(row)
+
+    def read_err(self):
+        self.__cur.execute("SELECT * FROM Error")
         for row in self.__cur:
             print(row)
 
