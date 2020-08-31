@@ -110,9 +110,9 @@ Monitor/monitor.db
 Monitor/error.txt
 
 # YouTubeDownload
-YouTubeDownload/log.txt
-YouTubeDownload/*.txt
-YouTubeDownload/*.json
-YouTubeDownload/*.exe
-YouTubeDownload/Youtube
+/log.txt
+/*.txt
+/*.json
+/*.exe
+/Youtube
 */*.db
